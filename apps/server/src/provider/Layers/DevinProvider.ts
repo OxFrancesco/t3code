@@ -130,11 +130,13 @@ export function parseDevinModels(raw: string): ReadonlyArray<ServerProviderModel
       const slug = variant.model_uid.trim();
       if (!slug || seen.has(slug)) continue;
       seen.add(slug);
+      // Variant labels already carry the family name ("Claude Fable 5 High").
+      // No `subProvider`: the picker strips it from the display name, which
+      // would leave only the effort qualifier ("High") as the row title.
       const label = variant.label.trim() || slug;
       models.push({
         slug,
         name: label,
-        subProvider: family.family_label.trim() || family.slug.trim() || undefined,
         isCustom: false,
         ...(slug === DEFAULT_DEVIN_MODEL ? { isDefault: true } : {}),
         capabilities: EMPTY_CAPABILITIES,
