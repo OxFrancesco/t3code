@@ -12,7 +12,7 @@ describe("isDevinAuthenticatedOutput", () => {
 });
 
 describe("parseDevinModels", () => {
-  it("flattens every family variant and preserves the family label", () => {
+  it("flattens every family variant and keeps the self-describing label as the name", () => {
     const models = parseDevinModels(
       JSON.stringify({
         families: [
@@ -49,9 +49,11 @@ describe("parseDevinModels", () => {
     expect(models.map((model) => model.slug)).toEqual(["swe-1-7-medium", "swe-1-7-high"]);
     expect(models[0]).toMatchObject({
       name: "SWE 1.7 Medium",
-      subProvider: "SWE 1.7",
       isDefault: true,
     });
+    // No subProvider: the picker strips it from the name, which would leave
+    // only the effort qualifier ("Medium") as the row title.
+    expect(models[0]?.subProvider).toBeUndefined();
   });
 
   it("rejects malformed model output without throwing", () => {
