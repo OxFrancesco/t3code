@@ -219,6 +219,41 @@ describe("provider enabled defaults", () => {
   });
 });
 
+describe("Devin provider settings", () => {
+  it("decodes a first-party default provider and all launch controls", () => {
+    const defaults = decodeServerSettings({}).providers.devin;
+    expect(defaults).toMatchObject({
+      enabled: true,
+      binaryPath: "devin",
+      configPath: "",
+      agentConfigPath: "",
+      sandbox: false,
+      respectWorkspaceTrust: true,
+      agentType: "",
+      launchArgs: "",
+      acpArgs: "",
+      customModels: [],
+    });
+
+    const patch = decodeServerSettingsPatch({
+      providers: {
+        devin: {
+          sandbox: true,
+          respectWorkspaceTrust: false,
+          agentType: "review",
+          launchArgs: "--permission-mode smart",
+        },
+      },
+    });
+    expect(patch.providers?.devin).toMatchObject({
+      sandbox: true,
+      respectWorkspaceTrust: false,
+      agentType: "review",
+      launchArgs: "--permission-mode smart",
+    });
+  });
+});
+
 describe("ServerSettings worktree defaults", () => {
   it("defaults start-from-origin on for legacy configs", () => {
     expect(decodeServerSettings({}).newWorktreesStartFromOrigin).toBe(true);

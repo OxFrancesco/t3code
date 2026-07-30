@@ -442,6 +442,99 @@ export const CursorSettings = makeProviderSettingsSchema(
 );
 export type CursorSettings = typeof CursorSettings.Type;
 
+export const DevinSettings = makeProviderSettingsSchema(
+  {
+    enabled: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(true)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    binaryPath: makeBinaryPathSetting("devin").pipe(
+      Schema.annotateKey({
+        title: "Binary path",
+        description: "Path to the Devin CLI binary used by this instance.",
+        providerSettingsForm: { placeholder: "devin", clearWhenEmpty: "omit" },
+      }),
+    ),
+    configPath: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Config path",
+        description: "Path passed to Devin's global --config flag.",
+        providerSettingsForm: {
+          placeholder: "~/.config/devin/config.json",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    agentConfigPath: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Agent config path",
+        description: "Agent configuration file passed with --agent-config.",
+        providerSettingsForm: { placeholder: "agent.json", clearWhenEmpty: "omit" },
+      }),
+    ),
+    sandbox: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.annotateKey({
+        title: "Use Devin sandbox",
+        description: "Run Devin in its managed sandbox with the global --sandbox flag.",
+        providerSettingsForm: { control: "switch" },
+      }),
+    ),
+    respectWorkspaceTrust: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(true)),
+      Schema.annotateKey({
+        title: "Respect workspace trust",
+        description: "Keep Devin's workspace trust checks enabled.",
+        providerSettingsForm: { control: "switch" },
+      }),
+    ),
+    agentType: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "ACP agent type",
+        description: "Optional Devin ACP agent type, such as summarizer or review.",
+        providerSettingsForm: { placeholder: "summarizer | review", clearWhenEmpty: "omit" },
+      }),
+    ),
+    launchArgs: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Global launch arguments",
+        description:
+          "Additional Devin global flags inserted before the acp command. Supports new CLI flags without an app update.",
+        providerSettingsForm: { placeholder: "--permission-mode smart", clearWhenEmpty: "omit" },
+      }),
+    ),
+    acpArgs: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "ACP arguments",
+        description: "Additional arguments appended after the Devin acp command.",
+        providerSettingsForm: { placeholder: "--agent-type review", clearWhenEmpty: "omit" },
+      }),
+    ),
+    customModels: Schema.Array(Schema.String).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+  },
+  {
+    order: [
+      "binaryPath",
+      "configPath",
+      "agentConfigPath",
+      "sandbox",
+      "respectWorkspaceTrust",
+      "agentType",
+      "launchArgs",
+      "acpArgs",
+    ],
+  },
+);
+export type DevinSettings = typeof DevinSettings.Type;
+
 export const GrokSettings = makeProviderSettingsSchema(
   {
     // Off by default (like Cursor and OpenCode): the binding is not yet
@@ -660,6 +753,7 @@ export const ServerSettings = Schema.Struct({
     codex: CodexSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     cursor: CursorSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    devin: DevinSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     grok: GrokSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
@@ -795,6 +889,19 @@ const CursorSettingsPatch = Schema.Struct({
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
+const DevinSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  binaryPath: Schema.optionalKey(TrimmedString),
+  configPath: Schema.optionalKey(TrimmedString),
+  agentConfigPath: Schema.optionalKey(TrimmedString),
+  sandbox: Schema.optionalKey(Schema.Boolean),
+  respectWorkspaceTrust: Schema.optionalKey(Schema.Boolean),
+  agentType: Schema.optionalKey(TrimmedString),
+  launchArgs: Schema.optionalKey(TrimmedString),
+  acpArgs: Schema.optionalKey(TrimmedString),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
 const GrokSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
@@ -848,6 +955,7 @@ export const ServerSettingsPatch = Schema.Struct({
       codex: Schema.optionalKey(CodexSettingsPatch),
       claudeAgent: Schema.optionalKey(ClaudeSettingsPatch),
       cursor: Schema.optionalKey(CursorSettingsPatch),
+      devin: Schema.optionalKey(DevinSettingsPatch),
       grok: Schema.optionalKey(GrokSettingsPatch),
       opencode: Schema.optionalKey(OpenCodeSettingsPatch),
     }),
