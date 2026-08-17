@@ -131,6 +131,7 @@ const CODEX_DRIVER_KIND = ProviderDriverKind.make("codex");
 const CLAUDE_DRIVER_KIND = ProviderDriverKind.make("claudeAgent");
 const CURSOR_DRIVER_KIND = ProviderDriverKind.make("cursor");
 const DEVIN_DRIVER_KIND = ProviderDriverKind.make("devin");
+const DEVIN_CLOUD_DRIVER_KIND = ProviderDriverKind.make("devinCloud");
 const GROK_DRIVER_KIND = ProviderDriverKind.make("grok");
 const OPENCODE_DRIVER_KIND = ProviderDriverKind.make("opencode");
 
@@ -153,6 +154,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Partial<Record<ProviderDriverKind, strin
   [CLAUDE_DRIVER_KIND]: "claude-sonnet-5",
   [CURSOR_DRIVER_KIND]: "auto",
   [DEVIN_DRIVER_KIND]: "swe-1-7-medium",
+  [DEVIN_CLOUD_DRIVER_KIND]: "devin-cloud",
   [GROK_DRIVER_KIND]: "grok-build",
   [OPENCODE_DRIVER_KIND]: "openai/gpt-5",
 };
@@ -215,6 +217,7 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Partial<
     "opus-4.5": "claude-opus-4-5",
   },
   [DEVIN_DRIVER_KIND]: {},
+  [DEVIN_CLOUD_DRIVER_KIND]: {},
   [OPENCODE_DRIVER_KIND]: {},
 };
 
@@ -225,6 +228,7 @@ export const PROVIDER_DISPLAY_NAMES: Partial<Record<ProviderDriverKind, string>>
   [CLAUDE_DRIVER_KIND]: "Claude",
   [CURSOR_DRIVER_KIND]: "Cursor",
   [DEVIN_DRIVER_KIND]: "Devin",
+  [DEVIN_CLOUD_DRIVER_KIND]: "Devin Cloud",
   [GROK_DRIVER_KIND]: "Grok",
   [OPENCODE_DRIVER_KIND]: "OpenCode",
 };

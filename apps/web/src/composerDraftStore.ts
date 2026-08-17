@@ -817,6 +817,7 @@ function normalizeProviderModelOptions(
     "claudeAgent",
     "cursor",
     "devin",
+    "devinCloud",
     "grok",
     "opencode",
   ] as const) {
@@ -983,6 +984,7 @@ function legacyToModelSelectionByProvider(
       "claudeAgent",
       "cursor",
       "devin",
+      "devinCloud",
       "grok",
       "opencode",
     ] as const) {
@@ -2792,6 +2794,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               "claudeAgent",
               "cursor",
               "devin",
+              "devinCloud",
               "grok",
               "opencode",
             ] as const) {

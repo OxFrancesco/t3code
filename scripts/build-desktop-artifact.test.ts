@@ -35,6 +35,8 @@ import {
   resolveDesktopRuntimeDependencies,
   resolveFffNativeDependencies,
   resolveBuildOptions,
+  resolveDesktopAppId,
+  resolveDesktopArtifactName,
   resolveDesktopBuildIconAssets,
   resolveDesktopProductName,
   resolveDesktopUpdateChannel,
@@ -157,6 +159,21 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   it("switches desktop packaging product names to nightly for nightly builds", () => {
     assert.equal(resolveDesktopProductName("0.0.17"), "T3 Code (Alpha)");
     assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "T3 Code (Nightly)");
+  });
+
+  it("keeps Devin desktop builds isolated from the standard app", () => {
+    const version = "0.0.30-devin.20260805.1";
+    assert.equal(resolveDesktopProductName(version), "T3 Code Devin");
+    assert.equal(resolveDesktopAppId(version), "com.t3tools.t3code.devin");
+    assert.equal(resolveDesktopArtifactName(version), "T3-Code-Devin-${version}-${arch}.${ext}");
+    assert.deepStrictEqual(resolveDesktopBuildIconAssets(version), {
+      macIconPng: BRAND_ASSET_PATHS.productionMacIconPng,
+      macIconIcns: "apps/desktop/resources/icon.icns",
+      linuxIconPng: BRAND_ASSET_PATHS.productionLinuxIconPng,
+      windowsIconIco: BRAND_ASSET_PATHS.productionWindowsIconIco,
+    });
+    assert.equal(resolveDesktopAppId("0.0.30"), "com.t3tools.t3code");
+    assert.equal(resolveDesktopArtifactName("0.0.30"), "T3-Code-${version}-${arch}.${ext}");
   });
 
   it("switches desktop packaging icons to the nightly artwork for nightly versions", () => {

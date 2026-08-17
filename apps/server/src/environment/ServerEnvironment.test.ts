@@ -71,6 +71,14 @@ const makeServerConfig = Effect.fn(function* (baseDir: string) {
 });
 
 it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
+  it("uses the managing desktop app version when provided", () => {
+    expect(
+      ServerEnvironment.resolveServerVersion({
+        T3CODE_DESKTOP_APP_VERSION: " 0.0.33-devin.20260810.1 ",
+      }),
+    ).toBe("0.0.33-devin.20260810.1");
+  });
+
   it.effect("persists the environment id across service restarts", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;

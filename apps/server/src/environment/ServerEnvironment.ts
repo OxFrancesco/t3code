@@ -38,6 +38,13 @@ export class ServerEnvironment extends Context.Service<
   }
 >()("t3/environment/ServerEnvironment") {}
 
+export function resolveServerVersion(environment: NodeJS.ProcessEnv): string {
+  const desktopAppVersion = environment.T3CODE_DESKTOP_APP_VERSION?.trim();
+  return desktopAppVersion && desktopAppVersion.length > 0
+    ? desktopAppVersion
+    : packageJson.version;
+}
+
 function platformOs(platform: NodeJS.Platform): ExecutionEnvironmentDescriptor["platform"]["os"] {
   switch (platform) {
     case "darwin":
@@ -142,7 +149,7 @@ export const make = Effect.gen(function* () {
       os: platformOs(hostPlatform),
       arch: platformArch(hostArchitecture),
     },
-    serverVersion: packageJson.version,
+    serverVersion: resolveServerVersion(process.env),
     capabilities: {
       repositoryIdentity: true,
       connectionProbe: true,

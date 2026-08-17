@@ -130,6 +130,38 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
+  it.effect("isolates packaged Devin state and desktop identity from T3 Code", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment({
+        appVersion: "0.0.32-devin.20260810.1",
+        isPackaged: true,
+      });
+
+      assert.equal(environment.baseDir, "/Users/alice/.t3-devin");
+      assert.equal(environment.stateDir, "/Users/alice/.t3-devin/userdata");
+      assert.equal(environment.userDataDirName, "t3code-devin");
+      assert.equal(environment.legacyUserDataDirName, "T3 Code Devin");
+      assert.equal(environment.appUserModelId, "com.t3tools.t3code.devin");
+      assert.equal(environment.linuxDesktopEntryName, "t3code-devin.desktop");
+      assert.equal(environment.linuxWmClass, "t3code-devin");
+    }),
+  );
+
+  it.effect("honors an explicit home for packaged Devin builds", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        {
+          appVersion: "0.0.32-devin.20260810.1",
+          isPackaged: true,
+        },
+        { T3CODE_HOME: "/tmp/custom-devin-home" },
+      );
+
+      assert.equal(environment.baseDir, "/tmp/custom-devin-home");
+      assert.equal(environment.stateDir, "/tmp/custom-devin-home/userdata");
+    }),
+  );
+
   it.effect("uses a configured app user model id override", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment(

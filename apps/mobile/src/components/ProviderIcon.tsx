@@ -23,7 +23,7 @@ export function ProviderIcon(props: ProviderIconProps) {
     );
   }
 
-  if (props.provider === "devin") {
+  if (props.provider === "devin" || props.provider === "devinCloud") {
     return (
       <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
         <Path

@@ -13,6 +13,7 @@ export type TextGenerationProvider =
   | "claudeAgent"
   | "cursor"
   | "devin"
+  | "devinCloud"
   | "grok"
   | "opencode";
 
