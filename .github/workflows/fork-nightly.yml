@@ -1,0 +1,101 @@
+# Fork-only nightly. Upstream's release.yml targets Blacksmith runners and
+# publishes to upstream-owned npm/Vercel, none of which exist on this fork.
+# This workflow builds an unsigned macOS arm64 DMG on GitHub-hosted runners
+# and publishes it as a GitHub prerelease.
+
+name: Fork Nightly
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-nightly
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and publish macOS arm64 nightly
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Skip when nothing changed since the last nightly
+        id: check
+        if: github.event_name == 'schedule'
+        run: |
+          last_nightly_tag=$(git tag --list 'v*-nightly.*' --sort=-creatordate | head -n 1)
+          if [[ -n "$last_nightly_tag" && "$(git rev-parse "$last_nightly_tag^{commit}")" == "$(git rev-parse HEAD)" ]]; then
+            echo "No changes since $last_nightly_tag. Skipping."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Vite+
+        if: steps.check.outputs.has_changes != 'false'
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: |
+            args:
+              - --filter=@t3tools/desktop...
+              - --filter=t3...
+              - --filter=@t3tools/scripts...
+
+      - name: Setup Rust
+        if: steps.check.outputs.has_changes != 'false'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Resolve nightly version
+        id: release_meta
+        if: steps.check.outputs.has_changes != 'false'
+        run: |
+          node scripts/resolve-nightly-release.ts \
+            --date "$(date -u +%Y%m%d)" \
+            --run-number "$GITHUB_RUN_NUMBER" \
+            --sha "$GITHUB_SHA" \
+            --github-output
+
+      - name: Align package versions to release version
+        if: steps.check.outputs.has_changes != 'false'
+        run: node scripts/update-release-package-versions.ts "${{ steps.release_meta.outputs.version }}"
+
+      - name: Build unsigned macOS arm64 DMG
+        if: steps.check.outputs.has_changes != 'false'
+        run: |
+          vp run dist:desktop:artifact \
+            --platform mac \
+            --target dmg \
+            --arch arm64 \
+            --build-version "${{ steps.release_meta.outputs.version }}" \
+            --verbose
+
+      - name: Publish GitHub prerelease
+        if: steps.check.outputs.has_changes != 'false'
+        run: |
+          shopt -s nullglob
+          assets=(release/*.dmg release/*.zip release/*.blockmap release/*.yml)
+          gh release create "${{ steps.release_meta.outputs.tag }}" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "${{ steps.release_meta.outputs.name }}" \
+            --notes "Fork nightly with Devin providers. Unsigned macOS arm64 build from $GITHUB_SHA." \
+            "${assets[@]}"
