@@ -535,6 +535,74 @@ export const DevinSettings = makeProviderSettingsSchema(
 );
 export type DevinSettings = typeof DevinSettings.Type;
 
+export const DevinCloudSettings = makeProviderSettingsSchema(
+  {
+    enabled: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(true)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    apiKey: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Service user API key",
+        description:
+          "Devin service-user token (cog_…). Stored in plain text on disk and sent only to api.devin.ai.",
+        providerSettingsForm: {
+          control: "password",
+          placeholder: "cog_…",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    organizationId: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Organization ID",
+        description: "Organization that owns the cloud sessions.",
+        providerSettingsForm: { placeholder: "org_…", clearWhenEmpty: "omit" },
+      }),
+    ),
+    createAsUserId: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Create as user ID",
+        description: "Optional user attribution for newly created sessions.",
+        providerSettingsForm: { placeholder: "Optional", clearWhenEmpty: "omit" },
+      }),
+    ),
+    repositories: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Repositories",
+        description: "Optional repository URLs, one per line or comma-separated.",
+        providerSettingsForm: {
+          control: "textarea",
+          placeholder: "https://github.com/owner/repo",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    tags: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Tags",
+        description: "Optional session tags, one per line or comma-separated.",
+        providerSettingsForm: {
+          control: "textarea",
+          placeholder: "t3-code",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    customModels: Schema.Array(Schema.String).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+  },
+  { order: ["apiKey", "organizationId", "createAsUserId", "repositories", "tags"] },
+);
+export type DevinCloudSettings = typeof DevinCloudSettings.Type;
+
 export const GrokSettings = makeProviderSettingsSchema(
   {
     // Off by default (like Cursor and OpenCode): the binding is not yet
@@ -754,6 +822,7 @@ export const ServerSettings = Schema.Struct({
     claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     cursor: CursorSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     devin: DevinSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    devinCloud: DevinCloudSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     grok: GrokSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
@@ -902,6 +971,16 @@ const DevinSettingsPatch = Schema.Struct({
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
+const DevinCloudSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  apiKey: Schema.optionalKey(TrimmedString),
+  organizationId: Schema.optionalKey(TrimmedString),
+  createAsUserId: Schema.optionalKey(TrimmedString),
+  repositories: Schema.optionalKey(TrimmedString),
+  tags: Schema.optionalKey(TrimmedString),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
 const GrokSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
@@ -956,6 +1035,7 @@ export const ServerSettingsPatch = Schema.Struct({
       claudeAgent: Schema.optionalKey(ClaudeSettingsPatch),
       cursor: Schema.optionalKey(CursorSettingsPatch),
       devin: Schema.optionalKey(DevinSettingsPatch),
+      devinCloud: Schema.optionalKey(DevinCloudSettingsPatch),
       grok: Schema.optionalKey(GrokSettingsPatch),
       opencode: Schema.optionalKey(OpenCodeSettingsPatch),
     }),

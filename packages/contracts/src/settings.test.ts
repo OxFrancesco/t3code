@@ -254,6 +254,34 @@ describe("Devin provider settings", () => {
   });
 });
 
+describe("Devin Cloud provider settings", () => {
+  it("defaults safely and accepts organization credentials", () => {
+    expect(decodeServerSettings({}).providers.devinCloud).toEqual({
+      enabled: true,
+      apiKey: "",
+      organizationId: "",
+      createAsUserId: "",
+      repositories: "",
+      tags: "",
+      customModels: [],
+    });
+
+    const patch = decodeServerSettingsPatch({
+      providers: {
+        devinCloud: {
+          apiKey: "cog_test",
+          organizationId: "org-test",
+          repositories: "https://github.com/pingdotgg/t3code",
+        },
+      },
+    });
+    expect(patch.providers?.devinCloud).toMatchObject({
+      apiKey: "cog_test",
+      organizationId: "org-test",
+    });
+  });
+});
+
 describe("ServerSettings worktree defaults", () => {
   it("defaults start-from-origin on for legacy configs", () => {
     expect(decodeServerSettings({}).newWorktreesStartFromOrigin).toBe(true);

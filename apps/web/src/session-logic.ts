@@ -53,6 +53,12 @@ export const PROVIDER_OPTIONS: Array<{
     pickerSidebarBadge: "new",
   },
   {
+    value: ProviderDriverKind.make("devinCloud"),
+    label: "Devin Cloud",
+    available: true,
+    pickerSidebarBadge: "new",
+  },
+  {
     value: ProviderDriverKind.make("grok"),
     label: "Grok",
     available: true,
