@@ -38,8 +38,7 @@ describe("DevinCloudCredentials", () => {
     Effect.gen(function* () {
       const resolved = yield* resolveDevinCloudCredentials(
         decodeSettings({ apiKey: "cog_explicit", organizationId: "org-explicit" }),
-        deadClient,
-      );
+      ).pipe(Effect.provideService(HttpClient.HttpClient, deadClient));
       expect(Option.isSome(resolved)).toBe(true);
       if (Option.isSome(resolved)) {
         expect(resolved.value.source).toBe("settings");
@@ -68,7 +67,8 @@ describe("DevinCloudCredentials", () => {
             ),
           );
         });
-        const resolved = yield* resolveDevinCloudCredentials(decodeSettings({}), client).pipe(
+        const resolved = yield* resolveDevinCloudCredentials(decodeSettings({})).pipe(
+          Effect.provideService(HttpClient.HttpClient, client),
           Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({ XDG_DATA_HOME: dir }))),
         );
         expect(Option.isSome(resolved)).toBe(true);
@@ -87,7 +87,8 @@ describe("DevinCloudCredentials", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const { dir } = yield* makeCliDataDir;
-        const resolved = yield* resolveDevinCloudCredentials(decodeSettings({}), deadClient).pipe(
+        const resolved = yield* resolveDevinCloudCredentials(decodeSettings({})).pipe(
+          Effect.provideService(HttpClient.HttpClient, deadClient),
           Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({ XDG_DATA_HOME: dir }))),
         );
         expect(Option.isNone(resolved)).toBe(true);

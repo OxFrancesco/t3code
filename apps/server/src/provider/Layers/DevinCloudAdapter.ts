@@ -60,7 +60,7 @@ interface CloudSessionContext {
   activeTurnId: TurnId | undefined;
   pollFiber: Fiber.Fiber<void, never> | undefined;
   readonly seenMessageIds: Set<string>;
-  turns: Array<{ readonly id: TurnId; readonly items: ReadonlyArray<unknown> }>;
+  turns: Array<{ readonly id: TurnId; readonly items: Array<unknown> }>;
   stopped: boolean;
 }
 
@@ -89,8 +89,9 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
 > {
   const crypto = yield* Crypto.Crypto;
   const scope = yield* Effect.scope;
-  const httpClient = yield* HttpClient.HttpClient;
-  const credentialServices = yield* Effect.context<FileSystem.FileSystem | Path.Path>();
+  const apiServices = yield* Effect.context<
+    FileSystem.FileSystem | HttpClient.HttpClient | Path.Path
+  >();
   const apiRef = yield* Ref.make(Option.fromNullishOr(options?.api));
   const boundInstanceId = options?.instanceId ?? ProviderInstanceId.make("devinCloud");
   const events = yield* PubSub.unbounded<ProviderRuntimeEvent>();
@@ -134,8 +135,8 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
   > = Effect.gen(function* () {
     const cached = yield* Ref.get(apiRef);
     if (Option.isSome(cached)) return cached.value;
-    const resolved = yield* resolveDevinCloudCredentials(settings, httpClient).pipe(
-      Effect.provide(credentialServices),
+    const resolved = yield* resolveDevinCloudCredentials(settings).pipe(
+      Effect.provide(apiServices),
       Effect.mapError(failApi),
     );
     if (Option.isNone(resolved)) {
@@ -146,7 +147,7 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
           "Devin Cloud has no credentials. Add a service-user API key and organization ID in provider settings, or sign in with the Devin CLI on this machine.",
       });
     }
-    const api = makeDevinCloudApi(resolved.value.settings, httpClient);
+    const api = yield* makeDevinCloudApi(resolved.value.settings).pipe(Effect.provide(apiServices));
     yield* Ref.set(apiRef, Option.some(api));
     return api;
   });
@@ -195,6 +196,9 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
     message: DevinCloudMessagesPage["items"][number],
   ) =>
     Effect.gen(function* () {
+      // Record the message on its turn so readThread() can snapshot the
+      // thread contents, not just stream them.
+      context.turns.find((turn) => turn.id === turnId)?.items.push(message);
       const itemId = RuntimeItemId.make(message.event_id);
       yield* publish({
         type: "item.started",
@@ -228,8 +232,11 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
       const updatedAt = yield* nowIso;
       context.activeTurnId = undefined;
       context.pollFiber = undefined;
+      // The settled session must not keep pointing at the completed turn, and
+      // a successful turn must clear any failure left by an earlier one.
+      const { activeTurnId: _activeTurnId, lastError: _lastError, ...settled } = context.session;
       context.session = {
-        ...context.session,
+        ...settled,
         status: failed ? "error" : "ready",
         updatedAt,
         ...(failed ? { lastError: "The Devin Cloud session entered an error state." } : {}),
@@ -267,6 +274,12 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
       const sessionId = context.remoteSessionId;
       if (!sessionId) return;
       while (!context.stopped && context.activeTurnId === turnId) {
+        // Observe the session status before reading messages: a message that
+        // lands between the read and the settle check would otherwise be
+        // dropped when the turn finishes on this iteration.
+        const remote = yield* (yield* requireApi)
+          .getSession(sessionId)
+          .pipe(Effect.mapError(failApi));
         const page = yield* readAllMessages(sessionId, context.messageCursor);
         for (const message of page.items) {
           if (context.seenMessageIds.has(message.event_id)) continue;
@@ -274,9 +287,6 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
           yield* emitMessage(context, turnId, message);
         }
         context.messageCursor = page.end_cursor ?? context.messageCursor;
-        const remote = yield* (yield* requireApi)
-          .getSession(sessionId)
-          .pipe(Effect.mapError(failApi));
         if (isTurnSettled(remote)) {
           yield* finishTurn(context, turnId, remote);
           return;
@@ -290,8 +300,9 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
           const updatedAt = yield* nowIso;
           context.activeTurnId = undefined;
           context.pollFiber = undefined;
+          const { activeTurnId: _activeTurnId, ...failedSession } = context.session;
           context.session = {
-            ...context.session,
+            ...failedSession,
             status: "error",
             updatedAt,
             lastError: error.message,
@@ -338,8 +349,9 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
             issue: `Expected provider '${PROVIDER}' but received '${input.provider}'.`,
           });
         }
-        const previous = sessions.get(input.threadId);
-        if (previous) yield* stopContext(previous);
+        // Validate the replacement request before touching the previous
+        // session: a malformed cursor or failed remote lookup must not
+        // disconnect a healthy session for the same thread.
         const resume = parseResumeCursor(input.resumeCursor);
         if (input.resumeCursor !== undefined && !resume) {
           return yield* new ProviderAdapterValidationError({
@@ -351,6 +363,8 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
         if (resume) {
           yield* (yield* requireApi).getSession(resume.sessionId).pipe(Effect.mapError(failApi));
         }
+        const previous = sessions.get(input.threadId);
+        if (previous) yield* stopContext(previous);
         const createdAt = yield* nowIso;
         const session: ProviderSession = {
           provider: PROVIDER,
@@ -421,12 +435,23 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
           });
         }
 
+        // Messages produced while no poll was running (detach, restart, poll
+        // gap) are still undelivered: hold them back as a backlog and emit
+        // them once the new turn has started. Without a persisted cursor the
+        // delivered/undelivered split is unknowable, so the history is only
+        // marked as seen to avoid replaying the whole remote session.
+        let backlog: Array<DevinCloudMessagesPage["items"][number]> = [];
         if (context.remoteSessionId) {
-          const baseline = yield* readAllMessages(context.remoteSessionId);
+          const baseline = yield* readAllMessages(context.remoteSessionId, context.messageCursor);
+          if (context.messageCursor !== undefined) {
+            backlog = baseline.items.filter(
+              (previousMessage) => !context.seenMessageIds.has(previousMessage.event_id),
+            );
+          }
           for (const previousMessage of baseline.items) {
             context.seenMessageIds.add(previousMessage.event_id);
           }
-          context.messageCursor = baseline.end_cursor ?? undefined;
+          context.messageCursor = baseline.end_cursor ?? context.messageCursor;
           yield* (yield* requireApi)
             .sendMessage(context.remoteSessionId, message)
             .pipe(Effect.mapError(failApi));
@@ -460,8 +485,10 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
           sessionId: remoteSessionId,
           ...(context.messageCursor ? { messageCursor: context.messageCursor } : {}),
         };
+        // A running turn supersedes any failure recorded by an earlier one.
+        const { lastError: _lastError, ...runningSession } = context.session;
         context.session = {
-          ...context.session,
+          ...runningSession,
           status: "running",
           activeTurnId: turnId,
           updatedAt,
@@ -474,6 +501,9 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
           turnId,
           payload: { model: MODEL },
         });
+        for (const backlogMessage of backlog) {
+          yield* emitMessage(context, turnId, backlogMessage);
+        }
         const fiber = yield* pollTurn(context, turnId).pipe(Effect.forkIn(scope));
         context.pollFiber = fiber;
         return { threadId: input.threadId, turnId, resumeCursor };
@@ -487,7 +517,8 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
         context.activeTurnId = undefined;
         context.pollFiber = undefined;
         const updatedAt = yield* nowIso;
-        context.session = { ...context.session, status: "ready", updatedAt };
+        const { activeTurnId: _activeTurnId, ...interrupted } = context.session;
+        context.session = { ...interrupted, status: "ready", updatedAt };
         yield* publish({
           type: "turn.completed",
           ...(yield* eventStamp()),
@@ -497,15 +528,15 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
         });
       }),
     respondToRequest: (
-      threadId: ThreadId,
+      _threadId: ThreadId,
       _requestId: ApprovalRequestId,
       _decision: ProviderApprovalDecision,
-    ) => unsupported(threadId, "respondToRequest", "Approve this request in the Devin web app."),
+    ) => unsupported("respondToRequest", "Approve this request in the Devin web app."),
     respondToUserInput: (
-      threadId: ThreadId,
+      _threadId: ThreadId,
       _requestId: ApprovalRequestId,
       _answers: ProviderUserInputAnswers,
-    ) => unsupported(threadId, "respondToUserInput", "Answer this request in the Devin web app."),
+    ) => unsupported("respondToUserInput", "Answer this request in the Devin web app."),
     stopSession: (threadId) => requireSession(threadId).pipe(Effect.flatMap(stopContext)),
     listSessions: () =>
       Effect.succeed(
@@ -516,8 +547,8 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
       requireSession(threadId).pipe(
         Effect.map((context): ProviderThreadSnapshot => ({ threadId, turns: [...context.turns] })),
       ),
-    rollbackThread: (threadId) =>
-      unsupported(threadId, "rollbackThread", "Devin Cloud sessions cannot be rolled back."),
+    rollbackThread: (_threadId: ThreadId) =>
+      unsupported("rollbackThread", "Devin Cloud sessions cannot be rolled back."),
     stopAll: () => Effect.forEach([...sessions.values()], stopContext, { discard: true }),
     streamEvents: Stream.fromPubSub(events),
   } satisfies ProviderAdapterShape<
@@ -544,8 +575,6 @@ function parseResumeCursor(value: unknown): DevinCloudResumeCursor | undefined {
   };
 }
 
-function unsupported(threadId: ThreadId, method: string, detail: string) {
-  return Effect.fail(
-    new ProviderAdapterRequestError({ provider: PROVIDER, method, detail, cause: { threadId } }),
-  );
+function unsupported(method: string, detail: string) {
+  return Effect.fail(new ProviderAdapterRequestError({ provider: PROVIDER, method, detail }));
 }

@@ -126,4 +126,36 @@ describe("buildElicitationResponseContent", () => {
     expect(buildElicitationResponseContent(formRequest, {})).toBeUndefined();
     expect(buildElicitationResponseContent(formRequest, { color: "" })).toBeUndefined();
   });
+
+  it("converts string answers back to declared number and boolean types", () => {
+    const typedRequest = {
+      mode: "form" as const,
+      sessionId: "mock-session-1",
+      message: "Configure it",
+      requestedSchema: {
+        type: "object" as const,
+        properties: {
+          count: { type: "integer" as const, title: "Count" },
+          ratio: { type: "number" as const, title: "Ratio" },
+          confirm: { type: "boolean" as const, title: "Confirm" },
+        },
+      },
+    };
+    expect(
+      buildElicitationResponseContent(typedRequest, {
+        count: "42",
+        ratio: "0.5",
+        confirm: "true",
+      }),
+    ).toEqual({ count: 42, ratio: 0.5, confirm: true });
+    // Answers that cannot represent the declared type are dropped rather
+    // than sent as schema-invalid strings.
+    expect(
+      buildElicitationResponseContent(typedRequest, {
+        count: "1.5",
+        ratio: "not a number",
+        confirm: "maybe",
+      }),
+    ).toBeUndefined();
+  });
 });

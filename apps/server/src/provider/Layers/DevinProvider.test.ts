@@ -82,16 +82,27 @@ describe("parseDevinSkills", () => {
           warnings: [],
           errors: ["invalid skill"],
         },
+        {
+          name: "broken",
+          description: "A user-triggered skill that failed validation.",
+          triggers: ["user"],
+          base_dir: "/tmp/skills/broken",
+          warnings: [],
+          errors: ["invalid skill"],
+        },
       ]),
     );
 
-    expect(parsed.skills).toHaveLength(2);
+    expect(parsed.skills).toHaveLength(3);
     expect(parsed.skills[0]).toMatchObject({
       name: "review",
       enabled: true,
       displayName: "Review",
     });
     expect(parsed.skills[1]?.enabled).toBe(false);
+    // A disabled skill must not surface a selectable slash command, even with
+    // a "user" trigger.
+    expect(parsed.skills[2]?.enabled).toBe(false);
     expect(parsed.commands).toEqual([
       { name: "review", description: "Review the current changes." },
     ]);

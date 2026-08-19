@@ -37,15 +37,28 @@ export const readDevinCliApiKey: Effect.Effect<
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const xdgDataHome = yield* Config.option(Config.string("XDG_DATA_HOME")).pipe(
-    Effect.catch(() => Effect.succeed(Option.none<string>())),
+    Effect.orElseSucceed(() => Option.none<string>()),
+  );
+  const appData = yield* Config.option(Config.string("APPDATA")).pipe(
+    Effect.orElseSucceed(() => Option.none<string>()),
   );
   const dataHome = Option.getOrElse(xdgDataHome, () =>
     path.join(NodeOS.homedir(), ".local", "share"),
   );
-  return yield* fs.readFileString(path.join(dataHome, "devin", "credentials.toml")).pipe(
-    Effect.map(parseDevinCliApiKey),
-    Effect.catch(() => Effect.succeed(Option.none<string>())),
-  );
+  // The Devin CLI writes credentials.toml under XDG data on Linux/macOS and
+  // under %APPDATA% on Windows; probe both so a Windows sign-in is found.
+  const candidates = [
+    path.join(dataHome, "devin", "credentials.toml"),
+    ...(Option.isSome(appData) ? [path.join(appData.value, "devin", "credentials.toml")] : []),
+  ];
+  for (const candidate of candidates) {
+    const key = yield* fs.readFileString(candidate).pipe(
+      Effect.map(parseDevinCliApiKey),
+      Effect.orElseSucceed(() => Option.none<string>()),
+    );
+    if (Option.isSome(key)) return key;
+  }
+  return Option.none<string>();
 });
 
 /**
@@ -57,11 +70,10 @@ export const readDevinCliApiKey: Effect.Effect<
  */
 export const resolveDevinCloudCredentials = Effect.fn("DevinCloudCredentials.resolve")(function* (
   settings: DevinCloudSettings,
-  httpClient: HttpClient.HttpClient,
 ): Effect.fn.Return<
   Option.Option<ResolvedDevinCloudCredentials>,
   DevinCloudApiError,
-  FileSystem.FileSystem | Path.Path
+  FileSystem.FileSystem | HttpClient.HttpClient | Path.Path
 > {
   if (settings.apiKey && settings.organizationId) {
     return Option.some({ settings, source: "settings" as const });
@@ -72,13 +84,14 @@ export const resolveDevinCloudCredentials = Effect.fn("DevinCloudCredentials.res
 
   let organizationId = settings.organizationId;
   if (!organizationId) {
-    const self = yield* makeDevinCloudApi({ ...settings, apiKey }, httpClient).getSelf;
+    const self = yield* (yield* makeDevinCloudApi({ ...settings, apiKey })).getSelf;
     const decoded = yield* decodeSelfOrganization(self).pipe(
       Effect.mapError(
-        () =>
+        (cause) =>
           new DevinCloudApiError({
             operation: "getSelf",
             detail: "The sign-in has no organization. Set the organization ID explicitly.",
+            cause,
           }),
       ),
     );

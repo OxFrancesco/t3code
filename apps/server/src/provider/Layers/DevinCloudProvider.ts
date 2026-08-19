@@ -8,7 +8,6 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
-import { HttpClient } from "effect/unstable/http";
 
 import { makeDevinCloudApi } from "../DevinCloudApi.ts";
 import { resolveDevinCloudCredentials } from "../DevinCloudCredentials.ts";
@@ -56,8 +55,7 @@ export const checkDevinCloudProviderStatus = Effect.fn("checkDevinCloudProviderS
   if (!settings.enabled) {
     return yield* buildInitialDevinCloudProviderSnapshot(settings);
   }
-  const httpClient = yield* HttpClient.HttpClient;
-  const resolved = yield* resolveDevinCloudCredentials(settings, httpClient).pipe(Effect.result);
+  const resolved = yield* resolveDevinCloudCredentials(settings).pipe(Effect.result);
   if (Result.isFailure(resolved)) {
     return buildSnapshot(settings, checkedAt, "error", "unauthenticated", resolved.failure.message);
   }
@@ -71,7 +69,7 @@ export const checkDevinCloudProviderStatus = Effect.fn("checkDevinCloudProviderS
     );
   }
   const credentials = resolved.success.value;
-  const result = yield* makeDevinCloudApi(credentials.settings, httpClient).getSelf.pipe(
+  const result = yield* (yield* makeDevinCloudApi(credentials.settings)).getSelf.pipe(
     Effect.result,
   );
   if (result._tag === "Success") {

@@ -970,7 +970,12 @@ export function makeDevinAdapter(devinSettings: DevinSettings, options?: DevinAd
             Effect.catch((cause) =>
               Effect.logError("Failed to process Devin runtime notification.", { cause }),
             ),
-            Effect.forkChild,
+            // Fork into the session scope, not the calling fiber. `forkChild`
+            // would make this a child of the fiber running `startSession`, and
+            // Effect interrupts a fiber's children when it completes, so the
+            // consumer would die as soon as `startSession` returned and every
+            // later notification would be dropped.
+            Effect.forkIn(sessionScope),
           );
 
           ctx.notificationFiber = nf;
@@ -1015,6 +1020,10 @@ export function makeDevinAdapter(devinSettings: DevinSettings, options?: DevinAd
         // resolving from here on does not settle the turn; the matching
         // decrement is the `ensuring` below.
         ctx.promptsInFlight += 1;
+        // Bind the turn id before cooperative yields so a concurrent sendTurn
+        // sees an in-flight prompt with a steering id instead of opening a
+        // second turn for the same work.
+        ctx.activeTurnId = turnId;
 
         return yield* Effect.gen(function* () {
           const turnModelSelection =
@@ -1039,7 +1048,6 @@ export function makeDevinAdapter(devinSettings: DevinSettings, options?: DevinAd
                 mapAcpToAdapterError(PROVIDER, input.threadId, method, cause),
             });
           yield* applyTurnConfiguration(ctx.acp);
-          ctx.activeTurnId = turnId;
           if (steeringTurnId === undefined) {
             ctx.lastPlanFingerprint = undefined;
           }

@@ -31,7 +31,9 @@ it.effect("creates and continues the same Devin organization session", () =>
         ),
       );
     });
-    const api = makeDevinCloudApi(settings, client);
+    const api = yield* makeDevinCloudApi(settings).pipe(
+      Effect.provideService(HttpClient.HttpClient, client),
+    );
 
     yield* api.createSession({
       prompt: "Build it",
@@ -70,7 +72,10 @@ it.effect("redacts credentials from API failures", () =>
     const client = HttpClient.make((request) =>
       Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({}, { status: 401 }))),
     );
-    const result = yield* Effect.result(makeDevinCloudApi(settings, client).getSelf);
+    const api = yield* makeDevinCloudApi(settings).pipe(
+      Effect.provideService(HttpClient.HttpClient, client),
+    );
+    const result = yield* Effect.result(api.getSelf);
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) {
       expect(result.failure.message).toContain("HTTP 401");

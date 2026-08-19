@@ -101,6 +101,19 @@ function coerceAnswer(
     }
     return undefined;
   }
+  // The UI answers with strings even for numeric and boolean properties, so
+  // convert them back to the declared type; a string here would be
+  // schema-invalid elicitation content and Devin would reject the answer.
+  if (property?.type === "number" || property?.type === "integer") {
+    if (values.length !== 1) return undefined;
+    const numeric = Number(values[0]);
+    if (!Number.isFinite(numeric)) return undefined;
+    return property.type === "integer" && !Number.isInteger(numeric) ? undefined : numeric;
+  }
+  if (property?.type === "boolean") {
+    const normalized = values[0]?.trim().toLowerCase();
+    return normalized === "true" ? true : normalized === "false" ? false : undefined;
+  }
   return property?.type === "array" ? values : values.join(", ");
 }
 

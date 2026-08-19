@@ -162,15 +162,18 @@ export function parseDevinSkills(raw: string): {
     if (!name || !path) continue;
     const description = skill.description?.trim();
     const displayName = skill.display_name?.trim();
+    const enabled = (skill.errors?.length ?? 0) === 0;
     skills.push({
       name,
       path,
       scope: "provider",
-      enabled: (skill.errors?.length ?? 0) === 0,
+      enabled,
       ...(description ? { description, shortDescription: description } : {}),
       ...(displayName ? { displayName } : {}),
     });
-    if (skill.triggers?.includes("user")) {
+    // A skill with errors is disabled, so it must not surface a slash command
+    // the user could still select.
+    if (enabled && skill.triggers?.includes("user")) {
       commands.push({
         name,
         ...(description ? { description } : {}),
@@ -338,12 +341,17 @@ export const checkDevinProviderStatus = Effect.fn("checkDevinProviderStatus")(fu
     { concurrency: 1 },
   );
 
-  const authenticated =
-    Option.isSome(authResult) &&
-    isDevinAuthenticatedOutput(
-      `${authResult.value.stdout}\n${authResult.value.stderr}`,
-      authResult.value.code,
-    );
+  // A probe that failed to run or timed out says nothing about credentials:
+  // report it as unknown instead of telling a signed-in user to log in again.
+  const authStatus = Option.isNone(authResult)
+    ? ("unknown" as const)
+    : isDevinAuthenticatedOutput(
+          `${authResult.value.stdout}\n${authResult.value.stderr}`,
+          authResult.value.code,
+        )
+      ? ("authenticated" as const)
+      : ("unauthenticated" as const);
+  const authenticated = authStatus === "authenticated";
   const discoveredModels = parseDevinModels(
     Option.isSome(modelsResult) ? successfulOutput(modelsResult.value) : "",
   );
@@ -356,6 +364,7 @@ export const checkDevinProviderStatus = Effect.fn("checkDevinProviderStatus")(fu
     EMPTY_CAPABILITIES,
   );
   const warnings = [
+    authStatus === "unknown" ? "The Devin authentication check did not complete." : undefined,
     discoveredModels.length === 0 ? "Model discovery was unavailable." : undefined,
     Option.isNone(skillsResult) || skillsResult.value.code !== 0
       ? "Skill discovery was unavailable."
@@ -372,16 +381,16 @@ export const checkDevinProviderStatus = Effect.fn("checkDevinProviderStatus")(fu
     probe: {
       installed: true,
       version,
-      status: authenticated ? (warnings.length > 0 ? "warning" : "ready") : "warning",
-      auth: { status: authenticated ? "authenticated" : "unauthenticated" },
-      ...(authenticated
-        ? warnings.length > 0
-          ? { message: warnings.join(" ") }
-          : {}
-        : {
+      status: authenticated && warnings.length === 0 ? "ready" : "warning",
+      auth: { status: authStatus },
+      ...(authStatus === "unauthenticated"
+        ? {
             message:
               "Devin CLI is installed but not signed in. Send a message to sign in from the browser, or run `devin auth login`.",
-          }),
+          }
+        : warnings.length > 0
+          ? { message: warnings.join(" ") }
+          : {}),
     },
   });
 });

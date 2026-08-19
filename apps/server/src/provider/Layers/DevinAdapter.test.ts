@@ -13,6 +13,7 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 
 import {
   ApprovalRequestId,
@@ -168,6 +169,65 @@ devinAdapterTestLayer("DevinAdapterLive", (it) => {
 
       yield* adapter.stopSession(threadId);
     }),
+  );
+
+  // Production calls startSession from a request fiber that finishes as soon
+  // as the session exists. `Effect.forkChild` made the notification consumer a
+  // child of that fiber, and Effect interrupts a fiber's children when it
+  // completes, so the consumer died on return and every later session/update
+  // was dropped. Every other test here calls startSession directly from the
+  // test fiber, which never completes, so the consumer survived and the bug
+  // stayed invisible. Running it in a fiber that finishes is what reproduces
+  // production. See the matching GrokAdapter regression test.
+  it.effect("keeps consuming notifications after the startSession fiber completes", () =>
+    Effect.gen(function* () {
+      const adapter = yield* DevinAdapter;
+      const settings = yield* ServerSettingsService;
+      const threadId = ThreadId.make("devin-consumer-outlives-start-session");
+
+      const wrapperPath = yield* Effect.promise(() => makeMockAgentWrapper());
+      yield* settings.updateSettings({ providers: { devin: { binaryPath: wrapperPath } } });
+
+      const turnCompleted = yield* Deferred.make<void>();
+      const deltas: Array<string> = [];
+      const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.gen(function* () {
+          if (String(event.threadId) !== String(threadId)) return;
+          if (event.type === "content.delta" && typeof event.payload.delta === "string") {
+            deltas.push(event.payload.delta);
+          }
+          if (event.type === "turn.completed") {
+            yield* Deferred.succeed(turnCompleted, undefined).pipe(Effect.ignore);
+          }
+        }),
+      ).pipe(Effect.forkChild);
+
+      const startSessionFiber = yield* adapter
+        .startSession(startSessionInput(threadId))
+        .pipe(Effect.forkChild);
+      yield* Fiber.join(startSessionFiber).pipe(Effect.timeout("10 seconds"));
+
+      // Forked, and the assertion waits on the projected event rather than on
+      // sendTurn: with the consumer dead the turn never settles, so awaiting
+      // it directly would hang until the suite timeout instead of failing.
+      const sendTurnFiber = yield* adapter
+        .sendTurn({ threadId, input: "hello mock", attachments: [] })
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(turnCompleted).pipe(Effect.timeout("10 seconds"));
+      yield* Fiber.join(sendTurnFiber).pipe(Effect.timeout("10 seconds"));
+
+      assert.include(
+        deltas,
+        "hello from mock",
+        "no content.delta was projected after the startSession fiber completed",
+      );
+
+      yield* Fiber.interrupt(runtimeEventsFiber);
+      yield* adapter.stopSession(threadId);
+      // Live clock so the timeouts above are real: under the default test
+      // clock they wait on virtual time that never advances, and a regression
+      // would hang until the suite timeout instead of failing here.
+    }).pipe(TestClock.withLive),
   );
 
   it.effect("surfaces thought chunks and usage updates as runtime events", () =>

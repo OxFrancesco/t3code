@@ -242,6 +242,7 @@ export const makeDevinTextGeneration = Effect.fn("makeDevinTextGeneration")(func
     Effect.fn("DevinTextGeneration.generateThreadTitle")(function* (input) {
       const { prompt, outputSchema } = buildThreadTitlePrompt({
         message: input.message,
+        previousTitle: input.previousTitle,
         attachments: input.attachments,
       });
 

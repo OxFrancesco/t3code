@@ -1,7 +1,7 @@
 import type { DevinCloudSettings } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { type HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
 const API_BASE_URL = "https://api.devin.ai/v3";
 
@@ -40,19 +40,23 @@ export const DevinCloudMessagesPage = Schema.Struct({
 export type DevinCloudMessagesPage = typeof DevinCloudMessagesPage.Type;
 
 const DevinCloudSelf = Schema.Unknown;
-export type DevinCloudApiOperation =
-  | "getSelf"
-  | "createSession"
-  | "getSession"
-  | "listMessages"
-  | "sendMessage";
+
+export const DevinCloudApiOperation = Schema.Literals([
+  "getSelf",
+  "createSession",
+  "getSession",
+  "listMessages",
+  "sendMessage",
+]);
+export type DevinCloudApiOperation = typeof DevinCloudApiOperation.Type;
 
 export class DevinCloudApiError extends Schema.TaggedErrorClass<DevinCloudApiError>()(
   "DevinCloudApiError",
   {
-    operation: Schema.String,
+    operation: DevinCloudApiOperation,
     status: Schema.optional(Schema.Number),
     detail: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -80,10 +84,10 @@ export interface DevinCloudApi {
   ) => Effect.Effect<DevinCloudSession, DevinCloudApiError>;
 }
 
-export function makeDevinCloudApi(
+export const makeDevinCloudApi = Effect.fn("makeDevinCloudApi")(function* (
   settings: DevinCloudSettings,
-  httpClient: HttpClient.HttpClient,
-): DevinCloudApi {
+): Effect.fn.Return<DevinCloudApi, never, HttpClient.HttpClient> {
+  const httpClient = yield* HttpClient.HttpClient;
   const orgPath = `${API_BASE_URL}/organizations/${encodeURIComponent(settings.organizationId)}`;
 
   const executeJson = <S extends Schema.Top>(
@@ -97,10 +101,11 @@ export function makeDevinCloudApi(
       )
       .pipe(
         Effect.mapError(
-          () =>
+          (cause) =>
             new DevinCloudApiError({
               operation,
               detail: "The request could not reach api.devin.ai.",
+              cause,
             }),
         ),
         Effect.flatMap((response) => decodeResponse(operation, response, schema)),
@@ -146,8 +151,8 @@ export function makeDevinCloudApi(
         ),
         DevinCloudSession,
       ),
-  };
-}
+  } satisfies DevinCloudApi;
+});
 
 function decodeResponse<S extends Schema.Top>(
   operation: DevinCloudApiOperation,
@@ -164,11 +169,12 @@ function decodeResponse<S extends Schema.Top>(
   return response.pipe(
     HttpClientResponse.schemaBodyJson(schema),
     Effect.mapError(
-      () =>
+      (cause) =>
         new DevinCloudApiError({
           operation,
           status: response.status,
           detail: "The response did not match the documented Devin API schema.",
+          cause,
         }),
     ),
   );
