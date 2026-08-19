@@ -506,7 +506,10 @@ export function makeDevinAdapter(devinSettings: DevinSettings, options?: DevinAd
       return Effect.succeed(ctx);
     };
 
-    const stopSessionInternal = (ctx: DevinSessionContext) =>
+    const stopSessionInternal = (
+      ctx: DevinSessionContext,
+      options?: { readonly emitSessionExited?: boolean },
+    ) =>
       Effect.gen(function* () {
         if (ctx.stopped) return;
         ctx.stopped = true;
@@ -517,6 +520,7 @@ export function makeDevinAdapter(devinSettings: DevinSettings, options?: DevinAd
         }
         yield* Effect.ignore(Scope.close(ctx.scope, Exit.void));
         sessions.delete(ctx.threadId);
+        if (options?.emitSessionExited === false) return;
         yield* offerRuntimeEvent({
           type: "session.exited",
           ...(yield* makeEventStamp()),
@@ -1148,6 +1152,10 @@ export function makeDevinAdapter(devinSettings: DevinSettings, options?: DevinAd
                     reason: "Devin sign-in completed",
                   },
                 });
+                // Tear down the pre-auth session silently: this restart is
+                // internal to the running turn, and a session.exited here
+                // would make orchestration treat the turn as stopped.
+                yield* stopSessionInternal(ctx, { emitSessionExited: false });
                 // No resume cursor on purpose: auth-required means this is a
                 // first sign-in, so there is no provider-side history worth
                 // loading and a fresh session is the reliable path.
@@ -1205,8 +1213,13 @@ export function makeDevinAdapter(devinSettings: DevinSettings, options?: DevinAd
 
           // Only the last remaining prompt settles the turn — a steer-
           // superseded prompt resolving (usually cancelled) while another is
-          // in flight or pending must leave the merged turn running.
-          if (ctx.promptsInFlight === 1) {
+          // in flight or pending must leave the merged turn running. The count
+          // is read from the live context: after an auth restart this prompt's
+          // pending decrement belongs to the replaced context, while a steer
+          // that arrived during the retry counts on the live one.
+          const remainingLivePrompts =
+            liveCtx === ctx ? liveCtx.promptsInFlight - 1 : liveCtx.promptsInFlight;
+          if (remainingLivePrompts <= 0) {
             yield* offerRuntimeEvent({
               type: "turn.completed",
               ...(yield* makeEventStamp()),
@@ -1324,10 +1337,12 @@ export function makeDevinAdapter(devinSettings: DevinSettings, options?: DevinAd
       });
 
     const stopAll: DevinAdapterShape["stopAll"] = () =>
-      Effect.forEach(sessions.values(), stopSessionInternal, { discard: true });
+      Effect.forEach(sessions.values(), (ctx) => stopSessionInternal(ctx), { discard: true });
 
     yield* Effect.addFinalizer(() =>
-      Effect.forEach(sessions.values(), stopSessionInternal, { discard: true }).pipe(
+      Effect.forEach(sessions.values(), (ctx) => stopSessionInternal(ctx), {
+        discard: true,
+      }).pipe(
         Effect.catch((cause) =>
           Effect.logError("Failed to emit Devin session shutdown event.", { cause }),
         ),

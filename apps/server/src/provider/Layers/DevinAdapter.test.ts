@@ -557,6 +557,9 @@ devinAdapterTestLayer("DevinAdapterLive", (it) => {
         (event) => event.type === "session.state.changed" && event.payload.state === "waiting",
       );
       assert.isDefined(waiting);
+      // The mid-turn session restart is internal: a session.exited here would
+      // make orchestration treat the running turn as stopped.
+      assert.isUndefined(runtimeEvents.find((event) => event.type === "session.exited"));
 
       yield* adapter.stopSession(threadId);
 
