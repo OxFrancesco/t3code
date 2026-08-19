@@ -1,7 +1,7 @@
 # Devin Cloud
 
 T3 Code can create and continue hosted Devin sessions through Devin's organization API. This is a
-separate provider from the local [Devin CLI](./devin.md): choose **Devin Cloud** when the task should
+separate provider from the local [Devin CLI](./providers-devin.md): choose **Devin Cloud** when the task should
 run in Devin's managed cloud environment.
 
 ## Prerequisites
