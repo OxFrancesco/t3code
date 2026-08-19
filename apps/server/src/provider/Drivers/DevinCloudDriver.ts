@@ -6,6 +6,8 @@ import {
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { HttpClient } from "effect/unstable/http";
 
@@ -37,7 +39,9 @@ const decodeSettings = Schema.decodeSync(DevinCloudSettings);
 export type DevinCloudDriverEnv =
   | BackgroundPolicy.BackgroundPolicy
   | Crypto.Crypto
+  | FileSystem.FileSystem
   | HttpClient.HttpClient
+  | Path.Path
   | ServerSettingsService;
 
 const withInstanceIdentity =
@@ -72,6 +76,8 @@ export const DevinCloudDriver: ProviderDriver<DevinCloudSettings, DevinCloudDriv
     Effect.gen(function* () {
       const crypto = yield* Crypto.Crypto;
       const httpClient = yield* HttpClient.HttpClient;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
       const serverSettings = yield* ServerSettingsService;
       const continuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
@@ -90,11 +96,15 @@ export const DevinCloudDriver: ProviderDriver<DevinCloudSettings, DevinCloudDriv
       });
       const adapter = yield* makeDevinCloudAdapter(effectiveConfig, { instanceId }).pipe(
         Effect.provideService(Crypto.Crypto, crypto),
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
         Effect.provideService(HttpClient.HttpClient, httpClient),
+        Effect.provideService(Path.Path, path),
       );
       const checkProvider = checkDevinCloudProviderStatus(effectiveConfig).pipe(
         Effect.map(stampIdentity),
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
         Effect.provideService(HttpClient.HttpClient, httpClient),
+        Effect.provideService(Path.Path, path),
       );
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
       const snapshot = yield* makeManagedServerProvider<

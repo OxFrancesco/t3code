@@ -6,9 +6,12 @@ import {
 import { createModelCapabilities } from "@t3tools/shared/model";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import { HttpClient } from "effect/unstable/http";
 
 import { makeDevinCloudApi } from "../DevinCloudApi.ts";
+import { resolveDevinCloudCredentials } from "../DevinCloudCredentials.ts";
 import { buildServerProvider, type ServerProviderDraft } from "../providerSnapshot.ts";
 
 const PRESENTATION = {
@@ -36,15 +39,6 @@ export function buildInitialDevinCloudProviderSnapshot(
     if (!settings.enabled) {
       return buildSnapshot(settings, checkedAt, "warning", "unknown", "Devin Cloud is disabled.");
     }
-    if (!settings.apiKey || !settings.organizationId) {
-      return buildSnapshot(
-        settings,
-        checkedAt,
-        "warning",
-        "unauthenticated",
-        "Add a Devin service-user API key and organization ID.",
-      );
-    }
     return buildSnapshot(
       settings,
       checkedAt,
@@ -59,18 +53,36 @@ export const checkDevinCloudProviderStatus = Effect.fn("checkDevinCloudProviderS
   settings: DevinCloudSettings,
 ) {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
-  if (!settings.enabled || !settings.apiKey || !settings.organizationId) {
+  if (!settings.enabled) {
     return yield* buildInitialDevinCloudProviderSnapshot(settings);
   }
   const httpClient = yield* HttpClient.HttpClient;
-  const result = yield* makeDevinCloudApi(settings, httpClient).getSelf.pipe(Effect.result);
+  const resolved = yield* resolveDevinCloudCredentials(settings, httpClient).pipe(Effect.result);
+  if (Result.isFailure(resolved)) {
+    return buildSnapshot(settings, checkedAt, "error", "unauthenticated", resolved.failure.message);
+  }
+  if (Option.isNone(resolved.success)) {
+    return buildSnapshot(
+      settings,
+      checkedAt,
+      "warning",
+      "unauthenticated",
+      "Add a Devin service-user API key and organization ID, or sign in with the Devin CLI on this machine.",
+    );
+  }
+  const credentials = resolved.success.value;
+  const result = yield* makeDevinCloudApi(credentials.settings, httpClient).getSelf.pipe(
+    Effect.result,
+  );
   if (result._tag === "Success") {
     return buildSnapshot(
       settings,
       checkedAt,
       "ready",
       "authenticated",
-      "Connected to Devin Cloud.",
+      credentials.source === "devin-cli"
+        ? "Connected to Devin Cloud using the Devin CLI sign-in."
+        : "Connected to Devin Cloud.",
     );
   }
   return buildSnapshot(settings, checkedAt, "error", "unauthenticated", result.failure.message);

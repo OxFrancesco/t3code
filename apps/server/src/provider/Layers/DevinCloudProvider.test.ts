@@ -1,6 +1,10 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import { DevinCloudSettings } from "@t3tools/contracts";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 
@@ -11,34 +15,87 @@ import {
 
 const decodeSettings = Schema.decodeSync(DevinCloudSettings);
 
+const selfClient = HttpClient.make((request) =>
+  Effect.succeed(
+    HttpClientResponse.fromWeb(
+      request,
+      Response.json({ principal_type: "service_user", org_id: "org-from-self" }),
+    ),
+  ),
+);
+
+const withEmptyCliDataDir = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "devin-cli-data-" });
+      return yield* effect.pipe(
+        Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({ XDG_DATA_HOME: dir }))),
+      );
+    }),
+  );
+
 describe("DevinCloudProvider", () => {
-  it.effect("asks for credentials before enabling cloud tasks", () =>
+  it.effect("reports pending credentials before the first check", () =>
     Effect.gen(function* () {
       const snapshot = yield* buildInitialDevinCloudProviderSnapshot(decodeSettings({}));
       expect(snapshot.status).toBe("warning");
-      expect(snapshot.auth.status).toBe("unauthenticated");
+      expect(snapshot.auth.status).toBe("unknown");
       expect(snapshot.models.map((model) => model.slug)).toEqual(["devin-cloud"]);
     }),
+  );
+
+  it.effect("asks for credentials when nothing is configured or signed in", () =>
+    withEmptyCliDataDir(checkDevinCloudProviderStatus(decodeSettings({}))).pipe(
+      Effect.provideService(HttpClient.HttpClient, selfClient),
+      Effect.provide(NodeServices.layer),
+      Effect.tap((snapshot) =>
+        Effect.sync(() => {
+          expect(snapshot.status).toBe("warning");
+          expect(snapshot.auth.status).toBe("unauthenticated");
+          expect(snapshot.message).toContain("sign in with the Devin CLI");
+        }),
+      ),
+    ),
   );
 
   it.effect("reports a valid service-user token as connected", () =>
     checkDevinCloudProviderStatus(
       decodeSettings({ apiKey: "cog_test", organizationId: "org-test" }),
     ).pipe(
-      Effect.provideService(
-        HttpClient.HttpClient,
-        HttpClient.make((request) =>
-          Effect.succeed(
-            HttpClientResponse.fromWeb(request, Response.json({ service_user_id: "user-test" })),
-          ),
-        ),
-      ),
+      Effect.provideService(HttpClient.HttpClient, selfClient),
+      Effect.provide(NodeServices.layer),
       Effect.tap((snapshot) =>
         Effect.sync(() => {
           expect(snapshot.status).toBe("ready");
           expect(snapshot.auth.status).toBe("authenticated");
+          expect(snapshot.message).toBe("Connected to Devin Cloud.");
         }),
       ),
+    ),
+  );
+
+  it.effect("connects through the Devin CLI sign-in when settings are empty", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const dir = yield* fs.makeTempDirectoryScoped({ prefix: "devin-cli-data-" });
+        yield* fs.makeDirectory(path.join(dir, "devin"), { recursive: true });
+        yield* fs.writeFileString(
+          path.join(dir, "devin", "credentials.toml"),
+          'windsurf_api_key = "cli-key"\n',
+        );
+        const snapshot = yield* checkDevinCloudProviderStatus(decodeSettings({})).pipe(
+          Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({ XDG_DATA_HOME: dir }))),
+        );
+        expect(snapshot.status).toBe("ready");
+        expect(snapshot.auth.status).toBe("authenticated");
+        expect(snapshot.message).toBe("Connected to Devin Cloud using the Devin CLI sign-in.");
+      }),
+    ).pipe(
+      Effect.provideService(HttpClient.HttpClient, selfClient),
+      Effect.provide(NodeServices.layer),
     ),
   );
 });

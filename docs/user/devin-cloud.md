@@ -6,8 +6,12 @@ run in Devin's managed cloud environment.
 
 ## Prerequisites
 
-Create a Devin service user and API key. The token starts with `cog_` and needs these organization
-permissions:
+If the Devin CLI is signed in on the machine running your T3 Code server, no setup is needed: Devin
+Cloud reuses the CLI sign-in automatically and discovers your organization. Explicit provider
+settings always take precedence over the CLI sign-in.
+
+Otherwise, create a Devin service user and API key. The token starts with `cog_` and needs these
+organization permissions:
 
 - `ManageOrgSessions` to create sessions and send follow-up messages
 - `ViewOrgSessions` to reconnect, read messages, and follow session status
@@ -19,7 +23,8 @@ setup and token handling.
 ## Provider settings
 
 Add **Devin Cloud** in Settings → Providers and enter the service-user API key and organization ID.
-The API key is stored in plain text in T3 Code's server settings, like other provider secrets.
+Both are optional when the Devin CLI is signed in on the server machine. The API key is stored in
+plain text in T3 Code's server settings, like other provider secrets.
 
 Optional settings apply when T3 Code creates a new cloud session:
 
