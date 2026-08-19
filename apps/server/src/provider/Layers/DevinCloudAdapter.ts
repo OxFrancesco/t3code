@@ -17,7 +17,11 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
+import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { HttpClient } from "effect/unstable/http";
@@ -28,6 +32,7 @@ import {
   type DevinCloudSession,
   makeDevinCloudApi,
 } from "../DevinCloudApi.ts";
+import { resolveDevinCloudCredentials } from "../DevinCloudCredentials.ts";
 import {
   ProviderAdapterRequestError,
   ProviderAdapterSessionNotFoundError,
@@ -80,11 +85,13 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
     | ProviderAdapterValidationError
   >,
   never,
-  Crypto.Crypto | HttpClient.HttpClient | Scope.Scope
+  Crypto.Crypto | FileSystem.FileSystem | HttpClient.HttpClient | Path.Path | Scope.Scope
 > {
   const crypto = yield* Crypto.Crypto;
   const scope = yield* Effect.scope;
-  const api = options?.api ?? makeDevinCloudApi(settings, yield* HttpClient.HttpClient);
+  const httpClient = yield* HttpClient.HttpClient;
+  const credentialServices = yield* Effect.context<FileSystem.FileSystem | Path.Path>();
+  const apiRef = yield* Ref.make(Option.fromNullishOr(options?.api));
   const boundInstanceId = options?.instanceId ?? ProviderInstanceId.make("devinCloud");
   const events = yield* PubSub.unbounded<ProviderRuntimeEvent>();
   const sessions = new Map<ThreadId, CloudSessionContext>();
@@ -119,6 +126,31 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
       detail: error.message,
       cause: error,
     });
+  // Credentials resolve lazily so a Devin CLI sign-in that happens after the
+  // adapter was created is picked up on the next turn without a restart.
+  const requireApi: Effect.Effect<
+    DevinCloudApi,
+    ProviderAdapterRequestError | ProviderAdapterValidationError
+  > = Effect.gen(function* () {
+    const cached = yield* Ref.get(apiRef);
+    if (Option.isSome(cached)) return cached.value;
+    const resolved = yield* resolveDevinCloudCredentials(settings, httpClient).pipe(
+      Effect.provide(credentialServices),
+      Effect.mapError(failApi),
+    );
+    if (Option.isNone(resolved)) {
+      return yield* new ProviderAdapterValidationError({
+        provider: PROVIDER,
+        operation: "resolveCredentials",
+        issue:
+          "Devin Cloud has no credentials. Add a service-user API key and organization ID in provider settings, or sign in with the Devin CLI on this machine.",
+      });
+    }
+    const api = makeDevinCloudApi(resolved.value.settings, httpClient);
+    yield* Ref.set(apiRef, Option.some(api));
+    return api;
+  });
+
   const requireSession = (
     threadId: ThreadId,
   ): Effect.Effect<CloudSessionContext, ProviderAdapterSessionNotFoundError> => {
@@ -131,13 +163,18 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
   const readAllMessages = (
     sessionId: string,
     after?: string,
-  ): Effect.Effect<DevinCloudMessagesPage, ProviderAdapterRequestError> =>
+  ): Effect.Effect<
+    DevinCloudMessagesPage,
+    ProviderAdapterRequestError | ProviderAdapterValidationError
+  > =>
     Effect.gen(function* () {
       let cursor = after;
       const items: DevinCloudMessagesPage["items"][number][] = [];
       let total: number | null | undefined;
       while (true) {
-        const page = yield* api.listMessages(sessionId, cursor).pipe(Effect.mapError(failApi));
+        const page = yield* (yield* requireApi)
+          .listMessages(sessionId, cursor)
+          .pipe(Effect.mapError(failApi));
         items.push(...page.items);
         total = page.total;
         if (!page.has_next_page || !page.end_cursor) {
@@ -237,7 +274,9 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
           yield* emitMessage(context, turnId, message);
         }
         context.messageCursor = page.end_cursor ?? context.messageCursor;
-        const remote = yield* api.getSession(sessionId).pipe(Effect.mapError(failApi));
+        const remote = yield* (yield* requireApi)
+          .getSession(sessionId)
+          .pipe(Effect.mapError(failApi));
         if (isTurnSettled(remote)) {
           yield* finishTurn(context, turnId, remote);
           return;
@@ -309,7 +348,9 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
             issue: "The persisted Devin Cloud session cursor is invalid.",
           });
         }
-        if (resume) yield* api.getSession(resume.sessionId).pipe(Effect.mapError(failApi));
+        if (resume) {
+          yield* (yield* requireApi).getSession(resume.sessionId).pipe(Effect.mapError(failApi));
+        }
         const createdAt = yield* nowIso;
         const session: ProviderSession = {
           provider: PROVIDER,
@@ -386,9 +427,11 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
             context.seenMessageIds.add(previousMessage.event_id);
           }
           context.messageCursor = baseline.end_cursor ?? undefined;
-          yield* api.sendMessage(context.remoteSessionId, message).pipe(Effect.mapError(failApi));
+          yield* (yield* requireApi)
+            .sendMessage(context.remoteSessionId, message)
+            .pipe(Effect.mapError(failApi));
         } else {
-          const remote = yield* api
+          const remote = yield* (yield* requireApi)
             .createSession({
               prompt: message,
               bypassApproval: context.runtimeMode === "full-access",

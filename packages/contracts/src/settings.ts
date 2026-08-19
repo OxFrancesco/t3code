@@ -546,7 +546,7 @@ export const DevinCloudSettings = makeProviderSettingsSchema(
       Schema.annotateKey({
         title: "Service user API key",
         description:
-          "Devin service-user token (cog_…). Stored in plain text on disk and sent only to api.devin.ai.",
+          "Devin service-user token (cog_…). Stored in plain text on disk and sent only to api.devin.ai. Optional when the Devin CLI is signed in on the server machine.",
         providerSettingsForm: {
           control: "password",
           placeholder: "cog_…",
@@ -558,7 +558,8 @@ export const DevinCloudSettings = makeProviderSettingsSchema(
       Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
         title: "Organization ID",
-        description: "Organization that owns the cloud sessions.",
+        description:
+          "Organization that owns the cloud sessions. Optional when the Devin CLI is signed in on the server machine.",
         providerSettingsForm: { placeholder: "org_…", clearWhenEmpty: "omit" },
       }),
     ),
