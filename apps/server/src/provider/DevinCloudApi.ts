@@ -72,6 +72,7 @@ export interface DevinCloudApi {
     readonly bypassApproval: boolean;
     readonly repos: ReadonlyArray<string>;
     readonly tags: ReadonlyArray<string>;
+    readonly devinMode?: string | undefined;
   }) => Effect.Effect<DevinCloudSession, DevinCloudApiError>;
   readonly getSession: (sessionId: string) => Effect.Effect<DevinCloudSession, DevinCloudApiError>;
   readonly listMessages: (
@@ -116,11 +117,13 @@ export const makeDevinCloudApi = Effect.fn("makeDevinCloudApi")(function* (
   return {
     getSelf: executeJson("getSelf", HttpClientRequest.get(`${API_BASE_URL}/self`), DevinCloudSelf),
     createSession: (input) => {
+      // No `platform` field: the API defines it as the VM platform / outpost
+      // pool selector and rejects unrecognized values with a 400.
       const body = {
         prompt: input.prompt,
         resumable: true,
         bypass_approval: input.bypassApproval,
-        platform: "t3-code",
+        ...(input.devinMode ? { devin_mode: input.devinMode } : {}),
         ...(input.repos.length > 0 ? { repos: input.repos } : {}),
         ...(input.tags.length > 0 ? { tags: input.tags } : {}),
         ...(settings.createAsUserId ? { create_as_user_id: settings.createAsUserId } : {}),

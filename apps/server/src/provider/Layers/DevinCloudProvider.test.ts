@@ -11,6 +11,7 @@ import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import {
   buildInitialDevinCloudProviderSnapshot,
   checkDevinCloudProviderStatus,
+  devinCloudModeFromModel,
 } from "./DevinCloudProvider.ts";
 
 const decodeSettings = Schema.decodeSync(DevinCloudSettings);
@@ -43,7 +44,26 @@ describe("DevinCloudProvider", () => {
       );
       expect(snapshot.status).toBe("warning");
       expect(snapshot.auth.status).toBe("unknown");
-      expect(snapshot.models.map((model) => model.slug)).toEqual(["devin-cloud"]);
+      expect(snapshot.models.map((model) => model.slug)).toEqual([
+        "devin-normal",
+        "devin-fast",
+        "devin-lite",
+        "devin-ultra",
+        "devin-fusion",
+      ]);
+      expect(snapshot.models.find((model) => model.isDefault)?.slug).toBe("devin-normal");
+    }),
+  );
+
+  it.effect("maps model slugs to devin_mode values", () =>
+    Effect.sync(() => {
+      expect(devinCloudModeFromModel("devin-normal")).toBe("normal");
+      expect(devinCloudModeFromModel("devin-fast")).toBe("fast");
+      expect(devinCloudModeFromModel("devin-fusion")).toBe("fusion");
+      // Legacy and unknown slugs fall back to the organization default.
+      expect(devinCloudModeFromModel("devin-cloud")).toBeUndefined();
+      expect(devinCloudModeFromModel(undefined)).toBeUndefined();
+      expect(devinCloudModeFromModel("gpt-4o")).toBeUndefined();
     }),
   );
 

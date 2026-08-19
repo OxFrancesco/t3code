@@ -74,6 +74,10 @@ describe("DevinCloudAdapter", () => {
             threadId,
             provider: ProviderDriverKind.make("devinCloud"),
             runtimeMode: "full-access",
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("devin_cloud_test"),
+              model: "devin-fast",
+            },
           });
           const started = yield* adapter.sendTurn({ threadId, input: "Build the feature" });
           yield* Deferred.await(completed);
@@ -88,6 +92,7 @@ describe("DevinCloudAdapter", () => {
               bypassApproval: true,
               repos: ["repo-a", "repo-b"],
               tags: ["t3-code"],
+              devinMode: "fast",
             },
           ]);
           expect(yield* adapter.hasSession(threadId)).toBe(true);

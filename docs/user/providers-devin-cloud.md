@@ -32,6 +32,14 @@ Optional settings apply when T3 Code creates a new cloud session:
 - **Repositories** supplies repository URLs, separated by commas or new lines.
 - **Tags** supplies session tags, separated by commas or new lines.
 
+## Choosing a Devin mode
+
+The model picker selects the Devin agent mode for the session: **Devin** (the default agent mode),
+**Devin Fast** (about 2x faster at a higher cost), and the preview modes **Devin Lite**,
+**Devin Ultra**, and **Devin Fusion**. Preview modes must be enabled for your organization; Devin
+rejects session creation when a mode is unavailable. The mode is fixed when the cloud session is
+created, so changing it requires a new thread.
+
 ## Starting and continuing tasks
 
 The first message in a T3 thread creates a resumable Devin session. T3 Code stores its `devin-…`

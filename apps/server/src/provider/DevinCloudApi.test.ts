@@ -40,6 +40,7 @@ it.effect("creates and continues the same Devin organization session", () =>
       bypassApproval: true,
       repos: ["https://github.com/pingdotgg/t3code"],
       tags: ["t3-code"],
+      devinMode: "fast",
     });
     yield* api.sendMessage("devin-session", "Continue it");
 
@@ -55,11 +56,14 @@ it.effect("creates and continues the same Devin organization session", () =>
       prompt: "Build it",
       resumable: true,
       bypass_approval: true,
-      platform: "t3-code",
+      devin_mode: "fast",
       create_as_user_id: "user-test",
       repos: ["https://github.com/pingdotgg/t3code"],
       tags: ["t3-code"],
     });
+    // `platform` selects the VM platform / outpost pool and rejects unknown
+    // values, so the request must not send one.
+    expect(createBody).not.toHaveProperty("platform");
     expect(decodeBody(requests[1]!)).toEqual({
       message: "Continue it",
       message_as_user_id: "user-test",

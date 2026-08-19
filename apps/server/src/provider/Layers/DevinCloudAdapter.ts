@@ -33,6 +33,7 @@ import {
   makeDevinCloudApi,
 } from "../DevinCloudApi.ts";
 import { resolveDevinCloudCredentials } from "../DevinCloudCredentials.ts";
+import { DEVIN_CLOUD_DEFAULT_MODEL, devinCloudModeFromModel } from "./DevinCloudProvider.ts";
 import {
   ProviderAdapterRequestError,
   ProviderAdapterSessionNotFoundError,
@@ -41,7 +42,6 @@ import {
 import type { ProviderAdapterShape, ProviderThreadSnapshot } from "../Services/ProviderAdapter.ts";
 
 const PROVIDER = ProviderDriverKind.make("devinCloud");
-const MODEL = "devin-cloud";
 const RESUME_SCHEMA_VERSION = 1 as const;
 
 interface DevinCloudResumeCursor {
@@ -379,13 +379,17 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
         const previous = sessions.get(input.threadId);
         if (previous) yield* stopContext(previous);
         const createdAt = yield* nowIso;
+        const model =
+          input.modelSelection?.instanceId === boundInstanceId
+            ? input.modelSelection.model
+            : DEVIN_CLOUD_DEFAULT_MODEL;
         const session: ProviderSession = {
           provider: PROVIDER,
           providerInstanceId: boundInstanceId,
           status: "ready",
           runtimeMode: input.runtimeMode,
           threadId: input.threadId,
-          model: MODEL,
+          model,
           createdAt,
           updatedAt: createdAt,
           ...(input.cwd ? { cwd: input.cwd } : {}),
@@ -448,6 +452,18 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
           });
         }
 
+        // The mode is fixed at remote session creation, so a turn-level model
+        // selection only applies while no remote session exists yet. Later
+        // selections are ignored; the presentation advertises
+        // `requiresNewThreadForModelChange` for exactly this reason.
+        const turnModel =
+          input.modelSelection?.instanceId === boundInstanceId
+            ? input.modelSelection.model
+            : undefined;
+        if (turnModel && !context.remoteSessionId && context.session.model !== turnModel) {
+          context.session = { ...context.session, model: turnModel };
+        }
+
         // Messages produced while no poll was running (detach, restart, poll
         // gap) are still undelivered: hold them back as a backlog and emit
         // them once the new turn has started. Without a persisted cursor the
@@ -469,12 +485,14 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
             .sendMessage(context.remoteSessionId, message)
             .pipe(Effect.mapError(failApi));
         } else {
+          const devinMode = devinCloudModeFromModel(context.session.model);
           const remote = yield* (yield* requireApi)
             .createSession({
               prompt: message,
               bypassApproval: context.runtimeMode === "full-access",
               repos: splitDevinCloudList(settings.repositories),
               tags: splitDevinCloudList(settings.tags),
+              ...(devinMode ? { devinMode } : {}),
             })
             .pipe(Effect.mapError(failApi));
           context.remoteSessionId = remote.session_id;
@@ -515,7 +533,7 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
             ...(yield* eventStamp()),
             ...eventBase(input.threadId),
             turnId,
-            payload: { model: MODEL },
+            payload: { model: context.session.model ?? DEVIN_CLOUD_DEFAULT_MODEL },
           });
           for (const backlogMessage of backlog) {
             yield* emitMessage(context, turnId, backlogMessage);

@@ -21,14 +21,46 @@ const PRESENTATION = {
 } as const;
 
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({ optionDescriptors: [] });
+
+// Devin Cloud's model choice is the API's `devin_mode` on session creation:
+// it cannot change mid-session, which is why the presentation sets
+// `requiresNewThreadForModelChange`. Preview modes (lite/ultra/fusion) are
+// feature-flagged per organization; the API rejects unavailable ones.
+export const DEVIN_CLOUD_MODES = ["normal", "fast", "lite", "ultra", "fusion"] as const;
+export type DevinCloudMode = (typeof DEVIN_CLOUD_MODES)[number];
+export const DEVIN_CLOUD_DEFAULT_MODEL = "devin-normal";
+
 const MODELS: ReadonlyArray<ServerProviderModel> = [
   {
-    slug: "devin-cloud",
-    name: "Devin Cloud",
+    slug: DEVIN_CLOUD_DEFAULT_MODEL,
+    name: "Devin",
+    isCustom: false,
+    isDefault: true,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+  { slug: "devin-fast", name: "Devin Fast", isCustom: false, capabilities: EMPTY_CAPABILITIES },
+  { slug: "devin-lite", name: "Devin Lite", isCustom: false, capabilities: EMPTY_CAPABILITIES },
+  { slug: "devin-ultra", name: "Devin Ultra", isCustom: false, capabilities: EMPTY_CAPABILITIES },
+  {
+    slug: "devin-fusion",
+    name: "Devin Fusion",
     isCustom: false,
     capabilities: EMPTY_CAPABILITIES,
   },
 ];
+
+/**
+ * Maps a Devin Cloud model slug ("devin-fast") to the API's `devin_mode`
+ * value. Unknown slugs, including the legacy "devin-cloud", return undefined
+ * so the session falls back to the organization's default mode.
+ */
+export function devinCloudModeFromModel(model: string | undefined): DevinCloudMode | undefined {
+  if (!model?.startsWith("devin-")) return undefined;
+  const mode = model.slice("devin-".length);
+  return (DEVIN_CLOUD_MODES as ReadonlyArray<string>).includes(mode)
+    ? (mode as DevinCloudMode)
+    : undefined;
+}
 
 export function buildInitialDevinCloudProviderSnapshot(
   settings: DevinCloudSettings,
