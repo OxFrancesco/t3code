@@ -286,7 +286,20 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
           context.seenMessageIds.add(message.event_id);
           yield* emitMessage(context, turnId, message);
         }
-        context.messageCursor = page.end_cursor ?? context.messageCursor;
+        const advancedCursor = page.end_cursor ?? context.messageCursor;
+        if (advancedCursor !== context.messageCursor) {
+          context.messageCursor = advancedCursor;
+          // Keep the persisted cursor in step with delivery: a resume after a
+          // restart must not replay messages this poll already emitted.
+          context.session = {
+            ...context.session,
+            resumeCursor: {
+              schemaVersion: RESUME_SCHEMA_VERSION,
+              sessionId,
+              ...(advancedCursor ? { messageCursor: advancedCursor } : {}),
+            },
+          };
+        }
         if (isTurnSettled(remote)) {
           yield* finishTurn(context, turnId, remote);
           return;
@@ -476,37 +489,55 @@ export const makeDevinCloudAdapter = Effect.fn("makeDevinCloudAdapter")(function
           });
         }
 
+        // The turn id is generated before any context mutation so a crypto
+        // failure cannot leave a half-started turn behind.
         const turnId = TurnId.make(yield* randomId);
-        context.activeTurnId = turnId;
-        context.turns.push({ id: turnId, items: [] });
         const updatedAt = yield* nowIso;
         const resumeCursor: DevinCloudResumeCursor = {
           schemaVersion: RESUME_SCHEMA_VERSION,
           sessionId: remoteSessionId,
           ...(context.messageCursor ? { messageCursor: context.messageCursor } : {}),
         };
-        // A running turn supersedes any failure recorded by an earlier one.
-        const { lastError: _lastError, ...runningSession } = context.session;
-        context.session = {
-          ...runningSession,
-          status: "running",
-          activeTurnId: turnId,
-          updatedAt,
-          resumeCursor,
-        };
-        yield* publish({
-          type: "turn.started",
-          ...(yield* eventStamp()),
-          ...eventBase(input.threadId),
-          turnId,
-          payload: { model: MODEL },
-        });
-        for (const backlogMessage of backlog) {
-          yield* emitMessage(context, turnId, backlogMessage);
-        }
-        const fiber = yield* pollTurn(context, turnId).pipe(Effect.forkIn(scope));
-        context.pollFiber = fiber;
-        return { threadId: input.threadId, turnId, resumeCursor };
+        return yield* Effect.gen(function* () {
+          context.activeTurnId = turnId;
+          context.turns.push({ id: turnId, items: [] });
+          // A running turn supersedes any failure recorded by an earlier one.
+          const { lastError: _lastError, ...runningSession } = context.session;
+          context.session = {
+            ...runningSession,
+            status: "running",
+            activeTurnId: turnId,
+            updatedAt,
+            resumeCursor,
+          };
+          yield* publish({
+            type: "turn.started",
+            ...(yield* eventStamp()),
+            ...eventBase(input.threadId),
+            turnId,
+            payload: { model: MODEL },
+          });
+          for (const backlogMessage of backlog) {
+            yield* emitMessage(context, turnId, backlogMessage);
+          }
+          const fiber = yield* pollTurn(context, turnId).pipe(Effect.forkIn(scope));
+          context.pollFiber = fiber;
+          return { threadId: input.threadId, turnId, resumeCursor };
+        }).pipe(
+          // The remote turn already started, but if event publishing fails
+          // before the poll is forked the local turn must not stay active
+          // forever and block every later sendTurn; the next send re-baselines
+          // against the remote session.
+          Effect.tapError(() =>
+            Effect.sync(() => {
+              if (context.activeTurnId !== turnId) return;
+              context.activeTurnId = undefined;
+              context.pollFiber = undefined;
+              const { activeTurnId: _activeTurnId, ...recovered } = context.session;
+              context.session = { ...recovered, status: "ready" };
+            }),
+          ),
+        );
       }),
     interruptTurn: (threadId, requestedTurnId) =>
       Effect.gen(function* () {
