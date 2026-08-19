@@ -185,6 +185,8 @@ describe("provider enabled defaults", () => {
     expect(decoded.providers.codex.enabled).toBe(true);
     expect(decoded.providers.claudeAgent.enabled).toBe(true);
     expect(decoded.providers.cursor.enabled).toBe(false);
+    expect(decoded.providers.devin.enabled).toBe(false);
+    expect(decoded.providers.devinCloud.enabled).toBe(false);
     expect(decoded.providers.grok.enabled).toBe(false);
     expect(decoded.providers.opencode.enabled).toBe(false);
   });
@@ -223,7 +225,7 @@ describe("Devin provider settings", () => {
   it("decodes a first-party default provider and all launch controls", () => {
     const defaults = decodeServerSettings({}).providers.devin;
     expect(defaults).toMatchObject({
-      enabled: true,
+      enabled: false,
       binaryPath: "devin",
       configPath: "",
       agentConfigPath: "",
@@ -257,7 +259,7 @@ describe("Devin provider settings", () => {
 describe("Devin Cloud provider settings", () => {
   it("defaults safely and accepts organization credentials", () => {
     expect(decodeServerSettings({}).providers.devinCloud).toEqual({
-      enabled: true,
+      enabled: false,
       apiKey: "",
       organizationId: "",
       createAsUserId: "",

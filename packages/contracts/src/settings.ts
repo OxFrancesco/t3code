@@ -444,8 +444,10 @@ export type CursorSettings = typeof CursorSettings.Type;
 
 export const DevinSettings = makeProviderSettingsSchema(
   {
+    // Off by default (like Cursor, Grok, and OpenCode): the binding is not
+    // yet stable enough to probe on every install. Users opt in from Settings.
     enabled: Schema.Boolean.pipe(
-      Schema.withDecodingDefault(Effect.succeed(true)),
+      Schema.withDecodingDefault(Effect.succeed(false)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     binaryPath: makeBinaryPathSetting("devin").pipe(
@@ -537,8 +539,10 @@ export type DevinSettings = typeof DevinSettings.Type;
 
 export const DevinCloudSettings = makeProviderSettingsSchema(
   {
+    // Off by default (like Cursor, Grok, and OpenCode): the binding is not
+    // yet stable enough to probe on every install. Users opt in from Settings.
     enabled: Schema.Boolean.pipe(
-      Schema.withDecodingDefault(Effect.succeed(true)),
+      Schema.withDecodingDefault(Effect.succeed(false)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     apiKey: TrimmedString.pipe(

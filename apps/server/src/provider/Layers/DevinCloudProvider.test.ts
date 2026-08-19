@@ -38,7 +38,9 @@ const withEmptyCliDataDir = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 describe("DevinCloudProvider", () => {
   it.effect("reports pending credentials before the first check", () =>
     Effect.gen(function* () {
-      const snapshot = yield* buildInitialDevinCloudProviderSnapshot(decodeSettings({}));
+      const snapshot = yield* buildInitialDevinCloudProviderSnapshot(
+        decodeSettings({ enabled: true }),
+      );
       expect(snapshot.status).toBe("warning");
       expect(snapshot.auth.status).toBe("unknown");
       expect(snapshot.models.map((model) => model.slug)).toEqual(["devin-cloud"]);
@@ -46,7 +48,7 @@ describe("DevinCloudProvider", () => {
   );
 
   it.effect("asks for credentials when nothing is configured or signed in", () =>
-    withEmptyCliDataDir(checkDevinCloudProviderStatus(decodeSettings({}))).pipe(
+    withEmptyCliDataDir(checkDevinCloudProviderStatus(decodeSettings({ enabled: true }))).pipe(
       Effect.provideService(HttpClient.HttpClient, selfClient),
       Effect.provide(NodeServices.layer),
       Effect.tap((snapshot) =>
@@ -61,7 +63,7 @@ describe("DevinCloudProvider", () => {
 
   it.effect("reports a valid service-user token as connected", () =>
     checkDevinCloudProviderStatus(
-      decodeSettings({ apiKey: "cog_test", organizationId: "org-test" }),
+      decodeSettings({ enabled: true, apiKey: "cog_test", organizationId: "org-test" }),
     ).pipe(
       Effect.provideService(HttpClient.HttpClient, selfClient),
       Effect.provide(NodeServices.layer),
@@ -86,7 +88,9 @@ describe("DevinCloudProvider", () => {
           path.join(dir, "devin", "credentials.toml"),
           'windsurf_api_key = "cli-key"\n',
         );
-        const snapshot = yield* checkDevinCloudProviderStatus(decodeSettings({})).pipe(
+        const snapshot = yield* checkDevinCloudProviderStatus(
+          decodeSettings({ enabled: true }),
+        ).pipe(
           Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({ XDG_DATA_HOME: dir }))),
         );
         expect(snapshot.status).toBe("ready");
