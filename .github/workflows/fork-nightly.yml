@@ -78,6 +78,12 @@ jobs:
         if: steps.check.outputs.has_changes != 'false'
         run: node scripts/update-release-package-versions.ts "${{ steps.release_meta.outputs.version }}"
 
+      # .env.example holds the public production Clerk/relay identifiers that
+      # official builds bake in; without them T3 Connect is compiled out.
+      - name: Enable T3 Connect public config
+        if: steps.check.outputs.has_changes != 'false'
+        run: cp .env.example .env
+
       - name: Build unsigned macOS arm64 DMG
         if: steps.check.outputs.has_changes != 'false'
         run: |
